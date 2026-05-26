@@ -22,7 +22,7 @@ public class BusinessException extends RuntimeException {
     }
 
     public static BusinessException forbidden(String message) {
-        return new BusinessException(501, message);
+        return new BusinessException(403, message);
     }
 
     public static BusinessException serverError(String message) {

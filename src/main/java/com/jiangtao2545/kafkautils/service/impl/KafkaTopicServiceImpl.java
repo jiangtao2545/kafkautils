@@ -223,11 +223,22 @@ public class KafkaTopicServiceImpl implements KafkaTopicService {
                     try {
                         future.getValue().get();
                         response.addSuccess(future.getKey());
-                    } catch (Exception ex) {
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        String reason = "删除被中断";
                         if (Boolean.TRUE.equals(request.getForceDelete())) {
-                            response.addSuccess(future.getKey());
+                            LOGGER.warn("Force delete ignored interruption for topic={}", future.getKey());
+                            response.addFail(future.getKey(), reason + "（forceDelete已忽略）");
                         } else {
-                            response.addFail(future.getKey(), ex.getMessage());
+                            response.addFail(future.getKey(), reason);
+                        }
+                    } catch (ExecutionException ex) {
+                        String reason = ex.getCause() == null ? ex.getMessage() : ex.getCause().getMessage();
+                        if (Boolean.TRUE.equals(request.getForceDelete())) {
+                            LOGGER.warn("Force delete ignored failure for topic={}, reason={}", future.getKey(), reason);
+                            response.addFail(future.getKey(), reason + "（forceDelete已忽略）");
+                        } else {
+                            response.addFail(future.getKey(), reason);
                         }
                     }
                 }

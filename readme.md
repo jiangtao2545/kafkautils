@@ -1,230 +1,128 @@
+# Kafka Topic 管理工具（MVP）
 
-# Kafka管理工具需求文档
+基于 **Spring Boot 2.7.x + JDK 8 + Maven + kafka-clients 2.8.0** 的 Kafka Topic 管理后端服务。
 
-## 文档版本
+## 1. 项目说明
 
-|版本号|修订日期|修订内容|修订人|
-|---|---|---|---|
-|V1\.0|2025\-XX\-XX|初始版本创建|系统开发|
+当前版本提供 RESTful API 方式的 Kafka Topic 管理能力，支持：
 
-## 一、文档概述
+- Kafka 集群配置（默认单集群，结构已支持扩展为多集群）
+- 查询 Topic 列表
+- 查询 Topic 详情
+- 创建 Topic
+- 删除一个或多个 Topic（逗号分隔）
+- 集群健康检查
+- 统一返回结构
+- 全局异常处理
+- 基本操作日志输出
 
-### 1\.1 文档目的
+## 2. 技术栈与版本
 
-本文档定义**基于 SpringBoot 2\.x \+ JDK 8**开发的 Kafka 管理工具的功能需求、非功能需求、技术约束及使用规范，为开发、测试、部署及运维提供统一依据。工具核心实现 Kafka Topic 的可视化 / 命令式管理，简化运维操作。
+- JDK: 8（编译目标 1.8）
+- Spring Boot: 2.7.18
+- Kafka Client: 2.8.0
+- Build Tool: Maven
 
-### 1\.2 适用范围
+## 3. 启动方式
 
-适用于开发人员、测试人员、运维人员，覆盖工具的设计、开发、测试、部署、使用全流程。
+### 3.1 本地运行
 
-### 1\.3 参考资料
+```bash
+mvn spring-boot:run
+```
 
-1. Spring Boot 2\.x 官方文档
+### 3.2 打包运行
 
-2. Apache Kafka 2\.x/3\.x 官方文档
+```bash
+mvn clean package
+java -jar target/kafkautils-1.0.0-SNAPSHOT.jar
+```
 
-3. Kafka AdminClient API 规范
+默认端口：`8080`
 
----
+## 4. 配置说明
 
-## 二、项目背景与目标
+配置文件：`src/main/resources/application.yml`
 
-### 2\.1 项目背景
+```yaml
+server:
+  port: 8080
 
-现有 Kafka 集群运维依赖命令行脚本、第三方平台，操作繁琐、无统一入口，缺乏简易化的 Topic 管理能力，需要开发轻量级、开箱即用的 Kafka 管理工具。
+spring:
+  application:
+    name: kafkautils
 
-### 2\.2 项目目标
+kafka:
+  active-cluster: default
+  clusters:
+    default:
+      bootstrap-servers: localhost:9092
+      security-protocol: PLAINTEXT
+      request-timeout-ms: 5000
+```
 
-1. 基于 SpringBoot 2\.x \+ JDK 8 构建，轻量级、无侵入式部署
+可选扩展（按需）：
 
-2. 实现 Kafka Topic 核心管理功能（删除、查询、创建等）
+- `sasl-mechanism`
+- `sasl-jaas-config`
 
-3. 支持配置化对接多 Kafka 集群
+## 5. 接口说明
 
-4. 提供接口化 / 简易控制台操作方式，降低运维成本
+统一响应结构：
 
----
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {}
+}
+```
 
-## 三、技术约束
+### 5.1 查询 Topic 列表
 
-### 3\.1 基础环境
+- `GET /kafka/topic/list`
 
-1. **JDK 版本**：JDK 8（强制要求）
+返回字段包含：
+- `topicName`
+- `partitions`
+- `replicationFactor`
+- `configSummary`（如 cleanup.policy / retention.ms / max.message.bytes）
 
-2. **SpringBoot 版本**：SpringBoot 2\.6\.x \~ 2\.7\.x（稳定版）
+### 5.2 查询 Topic 详情
 
-3. **Kafka 客户端版本**：kafka\-clients 2\.8\.0（兼容大部分 Kafka 集群版本）
+- `GET /kafka/topic/detail?topicName=xxx`
 
-4. **构建工具**：Maven 3\.6\+
+返回字段包含：
+- Topic 基础信息
+- 分区详情（leader/replicas/isr）
+- 常用配置（cleanup.policy、retention.ms、max.message.bytes）
 
-### 3\.2 技术栈
+### 5.3 创建 Topic
 
-- 核心框架：SpringBoot 2\.x
+- `POST /kafka/topic/create`
 
-- Kafka 操作：Kafka AdminClient（官方原生 API，无第三方中间件）
+请求示例：
 
-- 配置管理：SpringBoot 原生配置文件（application\.yml）
+```json
+{
+  "topicName": "test-topic",
+  "partitions": 3,
+  "replicationFactor": 1,
+  "retentionMs": 604800000,
+  "cleanupPolicy": "delete"
+}
+```
 
-- 接口规范：RESTful API（可选）/ 控制台命令（可选）
+参数校验：
+- `topicName`：必填，长度与字符合法
+- `partitions`：必须 > 0
+- `replicationFactor`：必须 > 0
 
-- 日志：SLF4J \+ Logback
+### 5.4 删除 Topic（支持批量）
 
-### 3\.3 兼容性
+- `POST /kafka/topic/delete`
 
-支持 Kafka 2\.x \~ 3\.x 版本集群，支持 SASL/PLAINTEXT 认证方式。
-
----
-
-## 四、功能需求
-
-### 4\.1 核心功能模块
-
-工具分为**集群配置管理、Topic 管理、配置校验、日志记录**四大模块，核心功能如下：
-
----
-
-### 4\.2 Topic 管理模块（核心）
-
-#### 4\.2\.1 删除指定 Topic
-
-1. **功能描述**
-支持删除 Kafka 集群中**单个 / 多个指定 Topic**，支持校验 Topic 是否存在，避免误删。
-
-2. **输入参数**
-
-    - 必传：待删除的 Topic 名称（支持多个，逗号分隔）
-
-    - 可选：是否强制删除（默认关闭，开启后忽略异常）
-
-3. **业务规则**
-
-    - 校验 Topic 名称合法性，不允许为空 / 特殊字符
-
-    - 先查询 Topic 是否存在，不存在则直接返回提示
-
-    - 执行删除后，异步等待集群同步结果
-
-    - 系统 Topic（\_\_consumer\_offsets 等）禁止删除
-
-4. **输出结果**
-
-    - 删除成功：返回成功列表
-
-    - 删除失败：返回失败 Topic \+ 失败原因（权限不足、Topic 不存在、集群异常等）
-
-#### 4\.2\.2 查询所有 Topic
-
-1. **功能描述**
-查询当前 Kafka 集群中所有自定义 Topic 列表，过滤系统内部 Topic。
-
-2. **输出内容**
-Topic 名称、分区数、副本数、创建时间。
-
-#### 4\.2\.3 查询指定 Topic 详情
-
-1. **功能描述**
-根据 Topic 名称查询详细配置信息。
-
-2. **输出内容**
-分区详情、副本分配、清理策略、消息保留时间、最大消息大小等配置。
-
-#### 4\.2\.4 创建 Topic（可选扩展）
-
-1. **功能描述**
-自定义参数创建 Topic。
-
-2. **输入参数**
-Topic 名称、分区数、副本数、消息保留时间、清理策略。
-
----
-
-### 4\.3 集群配置管理模块
-
-1. **功能描述**
-支持在配置文件中配置 Kafka 集群地址，支持单集群 / 多集群切换。
-
-2. **配置项**
-
-    - bootstrap\-servers：集群地址
-
-    - security\.protocol：安全协议（PLAINTEXT/SASL\_PLAINTEXT）
-
-    - sasl\.jaas\.config：认证配置（按需）
-
-    - \[request\.timeout\.ms\]\(request\.timeout\.ms\)：请求超时时间
-
-3. **功能**
-启动时自动校验集群连通性，集群不可用时抛出明确异常。
-
----
-
-### 4\.4 配置校验与异常处理模块
-
-1. 启动时自动检查 Kafka 集群连接状态
-
-2. 操作 Topic 前校验权限、参数合法性
-
-3. 统一异常处理：集群断开、Topic 不存在、权限不足、参数错误等
-
-4. 所有操作输出结构化日志，便于问题排查
-
----
-
-### 4\.5 操作接口方式
-
-工具提供**两种操作方式**（二选一或同时支持）：
-
-1. **RESTful API 接口**（推荐）
-提供 HTTP 接口，支持 Postman/Curl 调用，适合集成到运维平台。
-
-2. **控制台命令模式**
-启动后通过命令行输入指令执行操作，适合本地快速运维。
-
----
-
-## 五、非功能需求
-
-### 5\.1 性能需求
-
-1. 接口响应时间 \&lt; 3s（查询类），删除操作 \&lt; 5s
-
-2. 支持批量操作最多 50 个 Topic
-
-### 5\.2 可靠性需求
-
-1. 操作前强制校验，防止误删系统 Topic
-
-2. 所有操作记录日志，可追溯
-
-3. 集群异常时自动断开，不影响 Kafka 集群
-
-### 5\.3 安全性需求
-
-1. 支持 SASL 认证连接 Kafka 集群
-
-2. 禁止删除 Kafka 内置系统 Topic
-
-3. 敏感配置支持加密存储（可选）
-
-### 5\.4 易用性需求
-
-1. 配置文件简洁，注释完整
-
-2. 操作结果返回清晰，失败原因明确
-
-3. 无需依赖第三方服务，解压即可运行
-
----
-
-## 六、接口定义（示例）
-
-### 6\.1 删除 Topic 接口
-
-- 请求地址：`/kafka/topic/delete`
-
-- 请求方式：POST
-
-- 请求参数：
+请求示例：
 
 ```json
 {
@@ -233,96 +131,29 @@ Topic 名称、分区数、副本数、消息保留时间、清理策略。
 }
 ```
 
-- 响应参数：
+说明：
+- `topicNames` 支持逗号分隔多个 Topic
+- 删除前会保护系统 Topic，不允许删除：
+  - `__consumer_offsets`
+  - `__transaction_state`
+  - `__schema_history`
 
-```json
-{
-  "code": 200,
-  "message": "操作完成",
-  "data": {
-    "successList": ["test-topic-1"],
-    "failList": [
-      {
-        "topicName": "test-topic-2",
-        "reason": "Topic不存在"
-      }
-    ]
-  }
-}
-```
+### 5.5 Kafka 集群健康检查
 
-### 6\.2 查询所有 Topic 接口
+- `GET /kafka/cluster/health`
 
-- 请求地址：`/kafka/topic/list`
+返回集群 ID、controller、节点数量与节点列表。
 
-- 请求方式：GET
+## 6. 注意事项
 
----
+1. 当前版本通过 Kafka AdminClient 提供 Topic 管理能力。
+2. 集群不可达时会返回统一异常结构。
+3. 建议生产环境开启认证并使用安全协议。
 
-## 七、部署与运行需求
+## 7. 关于“Topic 创建时间”
 
-1. 部署环境：Linux/Windows/Mac（JDK 8 环境即可）
+Kafka AdminClient 在当前常规能力下通常无法直接查询 Topic 创建时间。
 
-2. 部署方式：jar 包独立运行，无外部依赖
+**本版本未提供 Topic 创建时间字段，且不会伪造该字段。**
 
-3. 配置文件：application\.yml 外置，方便修改集群地址
-
-4. 端口：默认 8080（可配置）
-
----
-
-## 八、验收标准
-
-1. 能够正常连接指定 Kafka 集群
-
-2. 能够准确查询所有 Topic
-
-3. 能够删除指定自定义 Topic，系统 Topic 无法删除
-
-4. 不存在的 Topic 删除时返回明确提示
-
-5. 集群断开时抛出友好异常
-
-6. 基于 JDK8 \+ SpringBoot2 打包运行正常
-
-7. 接口 / 控制台操作响应正常，日志完整
-
----
-
-## 九、附录
-
-### 9\.1 禁止删除的系统 Topic 列表
-
-1. \_\_consumer\_offsets
-
-2. \_\_transaction\_state
-
-3. \_\_schema\_history
-
-### 9\.2 异常码定义
-
-|异常码|含义|
-|---|---|
-|200|操作成功|
-|400|参数错误|
-|404|Topic 不存在|
-|500|服务器 / 集群异常|
-|501|权限不足|
-
----
-
-### 总结
-
-本文档明确了**SpringBoot2 \+ JDK8 Kafka 管理工具**的完整需求：
-
-1. 技术栈严格限定：JDK8、SpringBoot2、Kafka 原生 AdminClient
-
-2. 核心功能：**删除指定 Topic**（带校验、防误删）、Topic 查询、创建、集群管理
-
-3. 支持 API / 控制台两种操作方式，满足运维场景
-
-4. 具备完善的校验、异常处理、日志追溯能力
-
-5. 轻量级部署，开箱即用，无侵入式管理 Kafka 集群
-
-> （注：文档部分内容可能由 AI 生成）
+如需支持该信息，通常需要依赖外部审计日志、平台侧元数据记录或额外扩展机制。

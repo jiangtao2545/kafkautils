@@ -1,0 +1,14 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: kafkautils
+
+kafka:
+  active-cluster: default
+  clusters:
+    default:
+      bootstrap-servers: localhost:9092
+      security-protocol: PLAINTEXT
+      request-timeout-ms: 5000
